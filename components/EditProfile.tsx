@@ -7,6 +7,7 @@ import { styles as globalStyles } from '../utils/styles';
 import { NavigationProps } from '../App';
 import NavigationBar from './NavigationBar';
 import MapBackground from './MapBackground';
+import { mintTokensToUser, resetUserBalance } from '../utils/mintAndClaim';
 
 // Storage keys from Rewards component
 const STORAGE_KEYS = {
@@ -46,6 +47,8 @@ export default function EditProfile({ navigation }: NavigationProps) {
   const [walletAddress, setWalletAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isAddressValid, setIsAddressValid] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
   // Define options for form
   const ageRanges = ["Under 18", "18-25", "26-40", "40+"];
@@ -188,6 +191,28 @@ export default function EditProfile({ navigation }: NavigationProps) {
     }, 100);
   };
 
+  // Simple wallet address validation (Ethereum, Solana, BSC, Cardano, Base)
+  function validateWalletAddress(address: string, chain: string): boolean {
+    if (!address) return false;
+    if (chain === 'Ethereum' || chain === 'Base' || chain === 'Binance Smart Chain') {
+      // Ethereum/BSC/Base: 0x + 40 hex chars
+      return /^0x[a-fA-F0-9]{40}$/.test(address);
+    }
+    if (chain === 'Solana') {
+      // Solana: 32-44 base58 chars
+      return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+    }
+    if (chain === 'Cardano') {
+      // Cardano: starts with addr1, 58+ chars
+      return /^addr1[0-9a-z]{50,}$/.test(address);
+    }
+    return false;
+  }
+
+  useEffect(() => {
+    setIsAddressValid(validateWalletAddress(walletAddress, cryptoChain));
+  }, [walletAddress, cryptoChain]);
+
   return (
     <SafeAreaView style={[globalStyles.container, { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }]}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -318,6 +343,68 @@ export default function EditProfile({ navigation }: NavigationProps) {
               autoCapitalize="none"
               onFocus={scrollToWalletAddress}
             />
+            {walletAddress.length > 0 && !isAddressValid && (
+              <Text style={globalStyles.errorText}>Invalid address for selected chain.</Text>
+            )}
+            {isAddressValid && (
+              <TouchableOpacity
+                style={[globalStyles.button, { backgroundColor: '#4CAF50', marginBottom: 10 }]}
+                onPress={async () => {
+                  setClaiming(true);
+                  try {
+                    setError(null);
+                    setSuccess(null);
+                    // Get current user
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) throw new Error('No user found');
+                    // 1. Read balance from AsyncStorage
+                    const localBalanceStr = await AsyncStorage.getItem('captur_token_balance');
+                    const localBalance = localBalanceStr ? parseFloat(localBalanceStr) : 0;
+                    // 2. Sync to Supabase
+                    if (localBalance > 0) {
+                      const { error: syncError } = await supabase
+                        .from('profiles')
+                        .update({ token_balance: localBalance })
+                        .eq('id', user.id);
+                      if (syncError) throw syncError;
+                    }
+                    // 3. Fetch balance from Supabase
+                    const { data, error } = await supabase
+                      .from('profiles')
+                      .select('token_balance')
+                      .eq('id', user.id)
+                      .single();
+                    if (error) throw error;
+                    const balance = data?.token_balance;
+                    if (!balance || balance <= 0) {
+                      setError('No balance to claim.');
+                      return;
+                    }
+                    // 4. Mint tokens to user
+                    await mintTokensToUser(walletAddress, balance.toString());
+                    // 5. Reset balance in DB and AsyncStorage only if mint succeeded
+                    const { error: updateError } = await supabase
+                      .from('profiles')
+                      .update({ token_balance: 0 })
+                      .eq('id', user.id);
+                    if (updateError) throw updateError;
+                    await AsyncStorage.setItem('captur_token_balance', '0');
+                    setSuccess('Tokens claimed and balance reset!');
+                  } catch (err: any) {
+                    setError(err.message || 'Claim failed.');
+                  } finally {
+                    setClaiming(false);
+                  }
+                }}
+                disabled={claiming}
+              >
+                {claiming ? (
+                  <ActivityIndicator color="#272a32" />
+                ) : (
+                  <Text style={globalStyles.darkButtonText}>Claim</Text>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
 
           {error && <Text style={globalStyles.errorText}>{error}</Text>}
