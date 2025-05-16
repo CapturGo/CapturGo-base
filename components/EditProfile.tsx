@@ -43,7 +43,7 @@ export default function EditProfile({ navigation }: NavigationProps) {
   const [ageRange, setAgeRange] = useState('');
   const [gender, setGender] = useState('');
   const [commuteMode, setCommuteMode] = useState('');
-  const [cryptoChain, setCryptoChain] = useState('');
+  const [cryptoChain, setCryptoChain] = useState('Base'); // Default to Base chain
   const [walletAddress, setWalletAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -54,11 +54,7 @@ export default function EditProfile({ navigation }: NavigationProps) {
   const ageRanges = ["Under 18", "18-25", "26-40", "40+"];
   const genders = ["Male", "Female", "Other"];
   const cryptoChains = [
-    { name: "Ethereum", image: require('../assets/eth-ethereum.png') },
-    { name: "Solana", image: require('../assets/sol-solana.png') },
-    { name: "Base", image: require('../assets/eth-base.png') },
-    { name: "Binance Smart Chain", image: require('../assets/bnb-binance-coin.png') },
-    { name: "Cardano", image: require('../assets/ada-cardano.png') }
+    { name: "Base", image: require('../assets/eth-base.png') }
   ];
   const commuteModes = [
     { name: "Car", icon: "car" },
@@ -117,8 +113,11 @@ export default function EditProfile({ navigation }: NavigationProps) {
         setAgeRange(data.age_range || '');
         setGender(data.gender || '');
         setCommuteMode(data.commute_mode || '');
-        setCryptoChain(data.crypto_chain || '');
+        setCryptoChain('Base'); // Ensure cryptoChain is always Base
         setWalletAddress(data.wallet_address || '');
+      } else {
+        // If no profile data exists, initialize with defaults and ensure chain is Base
+        setCryptoChain('Base');
       }
     } catch (error: any) {
       setError(error.message);
@@ -191,27 +190,16 @@ export default function EditProfile({ navigation }: NavigationProps) {
     }, 100);
   };
 
-  // Simple wallet address validation (Ethereum, Solana, BSC, Cardano, Base)
-  function validateWalletAddress(address: string, chain: string): boolean {
+  // Simple wallet address validation for Base chain (Ethereum format)
+  function validateWalletAddress(address: string): boolean {
     if (!address) return false;
-    if (chain === 'Ethereum' || chain === 'Base' || chain === 'Binance Smart Chain') {
-      // Ethereum/BSC/Base: 0x + 40 hex chars
-      return /^0x[a-fA-F0-9]{40}$/.test(address);
-    }
-    if (chain === 'Solana') {
-      // Solana: 32-44 base58 chars
-      return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-    }
-    if (chain === 'Cardano') {
-      // Cardano: starts with addr1, 58+ chars
-      return /^addr1[0-9a-z]{50,}$/.test(address);
-    }
-    return false;
+    // Base uses Ethereum address format: 0x + 40 hex chars
+    return /^0x[a-fA-F0-9]{40}$/.test(address);
   }
 
   useEffect(() => {
-    setIsAddressValid(validateWalletAddress(walletAddress, cryptoChain));
-  }, [walletAddress, cryptoChain]);
+    setIsAddressValid(validateWalletAddress(walletAddress));
+  }, [walletAddress]);
 
   return (
     <SafeAreaView style={[globalStyles.container, { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }]}>
@@ -313,23 +301,20 @@ export default function EditProfile({ navigation }: NavigationProps) {
             </View>
 
             <Text style={globalStyles.sectionTitle}>Crypto Chain</Text>
-            <View style={globalStyles.buttonGroup}>
-              {cryptoChains.map((chain) => (
-                <TouchableOpacity
-                  key={chain.name}
-                  style={[
-                    globalStyles.selectionButton,
-                    { width: 50, height: 50, justifyContent: 'center' },
-                    cryptoChain === chain.name && globalStyles.selectedButton
-                  ]}
-                  onPress={() => setCryptoChain(chain.name)}
-                >
-                  <Image 
-                    source={chain.image} 
-                    style={{ width: 30, height: 30, resizeMode: 'contain' }} 
-                  />
-                </TouchableOpacity>
-              ))}
+            <View style={[globalStyles.buttonGroup, { justifyContent: 'flex-start', alignItems: 'center' }]}>
+              <View 
+                style={[
+                  globalStyles.selectionButton, 
+                  globalStyles.selectedButton, // Keep it styled as selected
+                  { width: 50, height: 50, justifyContent: 'center', alignItems: 'center', marginRight: 10 }
+                ]}
+              >
+                <Image 
+                  source={require('../assets/eth-base.png')} // Directly use Base image
+                  style={{ width: 30, height: 30, resizeMode: 'contain' }} 
+                />
+              </View>
+              <Text style={[globalStyles.whiteButtonText, { alignSelf: 'center' }]}>Base</Text>
             </View>
             
             <Text style={globalStyles.sectionTitle}>Wallet Address</Text>
@@ -380,7 +365,11 @@ export default function EditProfile({ navigation }: NavigationProps) {
                       setError('No balance to claim.');
                       return;
                     }
-                    // 4. Mint tokens to user
+                    // 4. Mint tokens to user (only for Base chain)
+                    if (cryptoChain !== 'Base') {
+                        setError('Only Base chain is supported for claiming tokens at the moment.');
+                        return;
+                    }
                     await mintTokensToUser(walletAddress, balance.toString());
                     // 5. Reset balance in DB and AsyncStorage only if mint succeeded
                     const { error: updateError } = await supabase
