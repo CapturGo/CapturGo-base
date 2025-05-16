@@ -18,6 +18,7 @@ import { styles as globalStyles } from '../utils/styles';
 import NavigationBar from './NavigationBar';
 import MapBackground from './MapBackground';
 import { NavigationProps } from '../App';
+import { useIsFocused } from '@react-navigation/native'; // Import useIsFocused
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -38,6 +39,7 @@ export default function Rewards({ navigation }: NavigationProps) {
   
   // Reference to the interval for token increments
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isFocused = useIsFocused(); // Hook to check if screen is focused
 
   /**
    * Load saved state from AsyncStorage and fetch referral code on component mount
@@ -59,24 +61,29 @@ export default function Rewards({ navigation }: NavigationProps) {
         const savedBalance = await AsyncStorage.getItem(STORAGE_KEYS.CAPT_BALANCE);
         if (savedBalance !== null) {
           setCaptBalance(parseFloat(savedBalance));
+        } else {
+          setCaptBalance(0); // Ensure balance is 0 if nothing in storage
         }
       } catch (error) {
         console.error('Error loading saved state:', error);
+        setCaptBalance(0); // Reset to 0 on error
       }
     };
     
-    // Initialize component data
-    fetchReferralCode();
-    loadSavedState();
+    if (isFocused) { // Only run when screen is focused
+      // Initialize component data
+      fetchReferralCode();
+      loadSavedState();
+    }
     
-    // Clean up interval on component unmount
+    // Clean up interval on component unmount or when screen loses focus
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
-  }, []);
+  }, [isFocused]); // Add isFocused to dependency array
   
   /**
    * Handle location sharing state changes and token increments
@@ -94,8 +101,14 @@ export default function Rewards({ navigation }: NavigationProps) {
     
     saveLocationSharingState();
     
+    // Clear existing interval before starting a new one or stopping
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
     // Handle token increments based on location sharing state
-    if (isLocationSharingEnabled) {
+    if (isLocationSharingEnabled && isFocused) { // Also check isFocused here
       // Start incrementing CAPT tokens when location sharing is enabled
       intervalRef.current = setInterval(() => {
         // Random increment between 0.01 and 0.1
@@ -110,7 +123,7 @@ export default function Rewards({ navigation }: NavigationProps) {
         });
       }, 1000);
     } else if (intervalRef.current) {
-      // Stop incrementing when location sharing is disabled
+      // Stop incrementing when location sharing is disabled or screen is not focused
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
@@ -122,7 +135,7 @@ export default function Rewards({ navigation }: NavigationProps) {
         intervalRef.current = null;
       }
     };
-  }, [isLocationSharingEnabled]);
+  }, [isLocationSharingEnabled, isFocused]);
   
   /**
    * Toggle location sharing state
